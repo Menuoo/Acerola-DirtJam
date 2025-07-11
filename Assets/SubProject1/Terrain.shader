@@ -6,12 +6,14 @@ Shader "Custom/Terrain"
 		_LowSlopeColor ("Low Slope Color", Color) = (1, 1, 1, 1)
 		_HighSlopeColor ("High Slope Color", Color) = (1, 1, 1, 1)
 		_AmbianceColor ("Ambiance Color", Color) = (0, 0, 0, 0)
+		_SpecularTint ("Specular Tint", Color) = (0, 0, 0, 0)
 
 		_Seed ("Seed", int) = 0
 		_Offset ("Offset", Vector) = (0, 0, 0, 0)
 		_Height ("Height", Float) = 1
 		_Zoom ("Zoom", Float) = 1
-		_Octaves ("Octaves", Range(1, 32)) = 1
+		_MinOctaves ("Min Octaves", Range(1, 32)) = 1
+		_Octaves ("Max Octaves", Range(1, 32)) = 1
 		_Amplitude ("Amplitude", Range(0, 2)) = 0.5
 		_AmplitudeDecay ("Amplitude Decay", Range(0,1)) = 0.5
 		_Lacunarity ("Lacunarity", Float) = 2
@@ -22,6 +24,10 @@ Shader "Custom/Terrain"
 		_SlopeDamping ("Slope Damping", Range(0, 1)) = 0
 		_SlopeThresholdLow ("Lower Slope Threshold", Range(0, 1)) = 0
 		_SlopeThresholdHi ("Higher Slope Threshold", Range(0, 1)) = 0
+
+		_FogFactor ("Fog Factor", Range(0.01, 1000)) = 1
+		_Smoothness ("Smoothness", Range(0, 1)) = 0.5 
+		_LODstrength ("LOD Strength", Range(0, 10)) = 0 
     }
     SubShader
     {
@@ -49,10 +55,11 @@ Shader "Custom/Terrain"
             sampler2D _MainTex;
             float4 _MainTex_ST;
 			float4 _LightDir;
-			float4 _LowSlopeColor, _HighSlopeColor, _AmbianceColor, _Offset;
-			float _Seed, _Height, _Zoom, _Octaves, _Amplitude, _AmplitudeDecay, _Lacunarity;
+			float4 _LowSlopeColor, _HighSlopeColor, _AmbianceColor, _SpecularTint, _Offset;
+			float _Seed, _Height, _Zoom, _Octaves, _MinOctaves, _Amplitude, _AmplitudeDecay, _Lacunarity;
 			float _FreqHighBound, _FreqLowBound, _GradientRotation;
 			float _SlopeDamping, _SlopeThresholdLow, _SlopeThresholdHi;
+			float _FogFactor, _Smoothness, _LODstrength;
 
 			#define PI 3.141592653589793238462
 
@@ -129,19 +136,22 @@ Shader "Custom/Terrain"
 			    return float3(noise, gradient);
 		    }
 
-			float3 fbm(float2 pos)
+			// Fractional Brownian Motion (for layering noise)
+			float3 fbm(float2 pos, float distance)
 			{
 				float lacunarity = _Lacunarity;
 				float amplitude = _Amplitude;
+				float octaves = lerp(_Octaves, _MinOctaves, saturate(distance / 500 * _LODstrength));
 
 				float height = 0;
 				float2 grad = 0;
 
+				// Rotates the gradients (VITALLY IMPORTANT)
 				float2x2 m = float2x2(1, 0,
 									  0, 1);
 
 			
-				for (int i = 0; i < _Octaves; i++)
+				for (int i = 0; i < octaves; i++)
 				{
 					float3 noise = PerlinNoise2D(pos);	
 					height += noise.x * amplitude;
@@ -162,40 +172,55 @@ Shader "Custom/Terrain"
 
             v2f vert (appdata v)
             {
-				float3 noisePos = (v.vertex + _Offset) / _Zoom;
-				float3 noise = fbm(noisePos.xz); 
+				float3 viewDir = _WorldSpaceCameraPos - v.vertex; // view direction (of camera)
+				float camDistance = length(viewDir); // camera distance vector from fragment to camera (very useful)
 
+
+				// Calculate Noise
+				float3 noisePos = (v.vertex + _Offset) / _Zoom;
+				float3 noise = fbm(noisePos.xz, camDistance); 
+
+				// Displace y by noise * height
                 v.vertex.y += _Height * noise.x + _Height - _Offset.y;
 
 
                 v2f i;
-				i.position = v.vertex;
-                i.vertex = UnityObjectToClipPos(v.vertex);
+				i.position = v.vertex;					   // Pass world position
+                i.vertex = UnityObjectToClipPos(v.vertex); // Pass clip position
 
                 return i;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
+				float3 viewDir = _WorldSpaceCameraPos - i.position; // view direction (of camera)
+				float camDistance = length(viewDir); // camera distance vector from fragment to camera (very useful)
+				float3 lightDir = normalize(_LightDir.xyz);
+
+
+				// Calculate Noise
 				float3 noisePos = (i.position + _Offset) / _Zoom;
-				float3 noise = _Height * fbm(noisePos.xz);
+				float3 noise = _Height * fbm(noisePos.xz, camDistance);
 
-				
+				// Use Noise to construct slope normal and lerp between low slope and high slope colours
 				float3 slopeNormal = normalize(float3(-noise.y, 1, -noise.z) * float3(_SlopeDamping, 1, _SlopeDamping));
-
 				float blendFactor = smoothstep(_SlopeThresholdLow, _SlopeThresholdHi, 1 - slopeNormal.y);
-
 				float4 albedo = lerp(_LowSlopeColor, _HighSlopeColor, blendFactor);
-				float4 ambient = _AmbianceColor;
 
 
+				//  Light calculations    --    Use Noise to construct normal and calculate Lambertian diffuse (ndotl)
 				float3 normal = normalize(float3(-noise.y, 1, -noise.z));
-				float ndotl = saturate(dot(-_LightDir.xyz, normal));
+				float ndotl = saturate(dot(-lightDir, normal));
+                fixed4 diffuse = albedo * ndotl; // Diffuse
+				fixed4 ambient = albedo * _AmbianceColor;   // Ambiance
 
-                fixed4 diffuse = albedo * ndotl;
-				fixed4 amb = albedo * ambient;
+				fixed4 final = saturate(diffuse + ambient); // Diffuse light + Ambient light
 
-                return saturate(diffuse + amb);
+
+				//  Distance Fog			//final = lerp(_AmbianceColor, final, saturate(i.vertex.z * 10000 / _FogFactor));   --   First attempt (Depth fog i think?)
+				final = lerp(final, _AmbianceColor, saturate(camDistance / 5000 * _FogFactor));
+
+                return final;
             }
 
             ENDCG

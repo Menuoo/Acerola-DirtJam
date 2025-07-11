@@ -19,7 +19,7 @@ Material:
   m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
-  m_LockedProperties: 
+  m_LockedProperties: _FogFactor
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
@@ -67,6 +67,7 @@ Material:
     - _Cutoff: 0.5
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
+    - _FogFactor: 3.04
     - _FreqHighBound: 0
     - _FreqLowBound: 0
     - _GlossMapScale: 1
@@ -74,8 +75,10 @@ Material:
     - _GlossyReflections: 1
     - _GradientRotation: 0
     - _Height: 90
+    - _LODstrength: 1.29
     - _Lacunarity: 2
     - _Metallic: 0
+    - _MinOctaves: 5
     - _Mode: 0
     - _OcclusionStrength: 1
     - _Octaves: 10
@@ -84,6 +87,7 @@ Material:
     - _SlopeDamping: 0.15
     - _SlopeThresholdHi: 0.99
     - _SlopeThresholdLow: 0.85
+    - _Smoothness: 0
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1
@@ -92,7 +96,7 @@ Material:
     - _Zoom: 163
     m_Colors:
     - _AddColor: {r: 1, g: 1, b: 1, a: 1}
-    - _AmbianceColor: {r: 0.19871125, g: 0.2231016, b: 0.23773581, a: 0}
+    - _AmbianceColor: {r: 0.53124243, g: 0.63921547, b: 0.7056604, a: 0}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _HighSlopeColor: {r: 0.4188679, g: 0.2268209, b: 0.25173217, a: 1}
@@ -100,4 +104,5 @@ Material:
     - _LowSlopeColor: {r: 1, g: 1, b: 1, a: 1}
     - _MainColor: {r: 0.86415094, g: 0.57237697, b: 0.37011746, a: 1}
     - _Offset: {r: 0, g: 90, b: 0, a: 0}
+    - _SpecularTint: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
