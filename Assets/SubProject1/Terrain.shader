@@ -3,8 +3,9 @@ Shader "Custom/Terrain"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-		_MainColor ("MainColor", Color) = (1, 1, 1, 1)
-		_AddColor ("AddColor", Color) = (1, 1, 1, 1)
+		_LowSlopeColor ("Low Slope Color", Color) = (1, 1, 1, 1)
+		_HighSlopeColor ("High Slope Color", Color) = (1, 1, 1, 1)
+		_AmbianceColor ("Ambiance Color", Color) = (0, 0, 0, 0)
 
 		_Seed ("Seed", int) = 0
 		_Offset ("Offset", Vector) = (0, 0, 0, 0)
@@ -16,6 +17,11 @@ Shader "Custom/Terrain"
 		_Lacunarity ("Lacunarity", Float) = 2
 		_FreqLowBound ("Frequency Variance Lower Bound", Float) = 0
 		_FreqHighBound ("Frequency Variance Higher Bound", Float) = 0 
+		_GradientRotation ("Gradient Rotation", Float) = 0
+
+		_SlopeDamping ("Slope Damping", Range(0, 1)) = 0
+		_SlopeThresholdLow ("Lower Slope Threshold", Range(0, 1)) = 0
+		_SlopeThresholdHi ("Higher Slope Threshold", Range(0, 1)) = 0
     }
     SubShader
     {
@@ -43,9 +49,10 @@ Shader "Custom/Terrain"
             sampler2D _MainTex;
             float4 _MainTex_ST;
 			float4 _LightDir;
-			float4 _MainColor, _AddColor, _Offset;
+			float4 _LowSlopeColor, _HighSlopeColor, _AmbianceColor, _Offset;
 			float _Seed, _Height, _Zoom, _Octaves, _Amplitude, _AmplitudeDecay, _Lacunarity;
-			float _FreqHighBound, _FreqLowBound;
+			float _FreqHighBound, _FreqLowBound, _GradientRotation;
+			float _SlopeDamping, _SlopeThresholdLow, _SlopeThresholdHi;
 
 			#define PI 3.141592653589793238462
 
@@ -64,7 +71,7 @@ Shader "Custom/Terrain"
             // Generates a random gradient vector for the perlin noise lattice points, watch my perlin noise video for a more in depth explanation
 			float2 RandVector(float seed) {
 				float theta = seed * 360 * 2 - 360;
-				theta += 0;									// Should (could) be _GradientRotation instead of 0
+				theta += _GradientRotation;
 				theta = theta * PI / 180.0;
 				return normalize(float2(cos(theta), sin(theta)));
 			}
@@ -129,18 +136,23 @@ Shader "Custom/Terrain"
 
 				float height = 0;
 				float2 grad = 0;
+
+				float2x2 m = float2x2(1, 0,
+									  0, 1);
+
 			
 				for (int i = 0; i < _Octaves; i++)
 				{
 					float3 noise = PerlinNoise2D(pos);	
 					height += noise.x * amplitude;
 
-					grad += noise.yz * amplitude;
+					grad += mul(m, noise.yz * amplitude);
 
 					float frequencyVariance = lerp(_FreqLowBound, _FreqHighBound, HashPosition(float2(i * 422, _Seed)));
 
 					amplitude *= _AmplitudeDecay;
 					pos *= (lacunarity + frequencyVariance);
+					m = mul(m, (lacunarity + frequencyVariance));
 				}
 
 				return float3(height, grad);
@@ -166,14 +178,24 @@ Shader "Custom/Terrain"
             fixed4 frag (v2f i) : SV_Target
             {
 				float3 noisePos = (i.position + _Offset) / _Zoom;
-				float3 noise = _Height * fbm(noisePos.xz); // might (not) keep the _Height here?? maybe??
+				float3 noise = _Height * fbm(noisePos.xz);
+
+				
+				float3 slopeNormal = normalize(float3(-noise.y, 1, -noise.z) * float3(_SlopeDamping, 1, _SlopeDamping));
+
+				float blendFactor = smoothstep(_SlopeThresholdLow, _SlopeThresholdHi, 1 - slopeNormal.y);
+
+				float4 albedo = lerp(_LowSlopeColor, _HighSlopeColor, blendFactor);
+				float4 ambient = _AmbianceColor;
 
 
 				float3 normal = normalize(float3(-noise.y, 1, -noise.z));
 				float ndotl = saturate(dot(-_LightDir.xyz, normal));
-				
-                fixed4 col = _MainColor * ndotl;
-                return col;
+
+                fixed4 diffuse = albedo * ndotl;
+				fixed4 amb = albedo * ambient;
+
+                return saturate(diffuse + amb);
             }
 
             ENDCG
